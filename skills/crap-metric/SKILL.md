@@ -31,7 +31,7 @@ CRAP(m) = CC² × (1 − cov)³ + CC
 - **CC**: Cyclomatic Complexity (base 1 + decision points)
 - **cov**: Test coverage fraction (`0.0` to `1.0`)
 - **CRAP Threshold**: Standard threshold is **30**. Functions with `CRAP > 30` are high-risk Change Risk Anti-Patterns.
-- **Max Complexity (Clean Code)**: Per Robert C. Martin's guidance, functions — **especially agentic-generated ones** — should keep Cyclomatic Complexity **at or below 6**. Functions with `CC > 6` are flagged for decomposition (category `REDUCE_COMPLEXITY`) even when their CRAP score is within threshold. This is configurable via `--max-complexity` (default: `6`).
+- **Max Complexity (`CC ≤ 6`)**: Per Robert C. Martin's ("Uncle Bob") guidance on coding with AI agents — in which he has agents drive every function's complexity below six ([conversation with Kent Dodds](https://youtu.be/RxxxGkFIUJ0?t=859)) — functions, **especially agentic-generated ones**, should keep Cyclomatic Complexity **at or below 6**. Functions with `CC > 6` are flagged for decomposition (category `REDUCE_COMPLEXITY`) even when their CRAP score is within threshold. This is configurable via `--max-complexity` (default: `6`).
 - **Treat 6 as a guideline, not an absolute rule**: decompose only when it improves readability — see the judgment note under Step 4, Path C.
 
 ---
@@ -97,7 +97,7 @@ The analyzer output categorizes every flagged function into one of three action 
   1. Extract nested logic into private helper methods.
   2. Replace nested conditional blocks with early-return guard clauses.
   3. Replace complex switch/case structures with lookup dictionaries or polymorphism.
-  4. **Target:** reduce CC to **≤ 6** (Clean Code maximum).
+  4. **Target:** reduce CC to **≤ 6** (Uncle Bob's recommended ceiling for agent-generated code).
 
 #### Path B: 🟠 ADD TARGETED UNIT TESTS (`CC ≤ 30` and `CRAP > 30`)
 - **Cause:** Manageable complexity, but insufficient test coverage.
@@ -111,7 +111,7 @@ The analyzer output categorizes every flagged function into one of three action 
   2. Generate test assertions covering those specific branches and edge conditions.
 
 #### Path C: 🟡 REDUCE COMPLEXITY (`CRAP ≤ 30` but `CC > 6`)
-- **Cause:** CRAP is within threshold, but Cyclomatic Complexity exceeds the Clean Code maximum of **6**. Applies especially to agentic-generated code, which should be born simple.
+- **Cause:** CRAP is within threshold, but Cyclomatic Complexity exceeds the recommended maximum of **6** (Uncle Bob's ceiling for agent-generated code). Applies especially to agentic-generated code, which should be born simple.
 - **Action for Kiro:** Offer to decompose the function (same techniques as Path A) to bring `CC ≤ 6`. No new tests are strictly required, but keep existing coverage intact.
 - **Note:** The complexity ceiling is configurable with `--max-complexity N`; the default of `6` reflects Uncle Bob's guidance.
 
