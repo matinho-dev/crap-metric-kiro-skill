@@ -29,7 +29,7 @@ simple function is always safe; a complex, untested one is a change hazard.
 | Gate | Default | Meaning |
 |---|---|---|
 | **CRAP threshold** | `30` | Functions with `CRAP > 30` are high-risk anti-patterns. |
-| **Max complexity** | `6` | Per Robert C. Martin's *Clean Code* guidance, functions (especially agentic-generated ones) should keep `CC ≤ 6`. `CC > 6` is flagged for decomposition even when CRAP passes. Configurable via `--max-complexity`; **treated as a guideline — decompose only where it improves readability.** |
+| **Max complexity** | `6` | Per Robert C. Martin's ("Uncle Bob") guidance on coding with AI agents — he has agents drive every function below a complexity of six ([talk with Kent Dodds](https://youtu.be/RxxxGkFIUJ0?t=859)) — functions (especially agentic-generated ones) should keep `CC ≤ 6`. `CC > 6` is flagged for decomposition even when CRAP passes. Configurable via `--max-complexity`; **treated as a guideline — decompose only where it improves readability.** |
 
 ---
 
@@ -39,7 +39,7 @@ For every function, the analyzer classifies it into one of these action paths:
 
 - 🔴 **MANDATORY REFACTOR** (`CC > 30`) — even 100% coverage can't clear CRAP; the code must be decomposed.
 - 🟠 **ADD UNIT TESTS** (`CC ≤ 30`, `CRAP > 30`) — manageable complexity but insufficient coverage; the report gives the exact target coverage % and uncovered lines.
-- 🟡 **REDUCE COMPLEXITY** (`CRAP ≤ 30`, `CC > 6`) — within CRAP threshold but above the Clean Code complexity ceiling.
+- 🟡 **REDUCE COMPLEXITY** (`CRAP ≤ 30`, `CC > 6`) — within CRAP threshold but above Uncle Bob's recommended complexity ceiling for agent-generated code.
 - ✅ **HEALTHY** — clean, low-risk.
 
 Each flagged function comes with a ready-to-execute **AI Agent Directive** — a
