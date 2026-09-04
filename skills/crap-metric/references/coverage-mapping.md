@@ -4,21 +4,28 @@
 
 To calculate the CRAP score, code coverage must be mapped down to the individual function level.
 
-$$\text{CRAP}(m) = \text{CC}^2 \times (1 - \text{cov})^3 + \text{CC}$$
+```
+CRAP(m) = CC² × (1 − cov)³ + CC
+```
 
 ---
 
 ## 1. Auto-Discovery Locations
 
-When invoked without an explicit `--lcov` flag, the analyzer checks the workspace for standard coverage artifacts:
+When invoked without an explicit `--lcov` flag, the analyzer checks the workspace for standard coverage artifacts. Reports are parsed by one of three built-in parsers — **LCOV**, **XML** (JaCoCo / Cobertura / Clover, auto-detected by schema), or **Go cover** — selected by file extension and content.
 
-| Language / Tool | Frameworks | Common Coverage Paths |
-|:---|:---|:---|
-| **TypeScript / JS** | Jest, Vitest, c8, Istanbul | `coverage/lcov.info`<br>`coverage/lcov-report/index.html`<br>`.nyc_output/` |
-| **Go** | `go test -coverprofile` | `coverage.out`<br>`c.out`<br>`cover.out` |
-| **Java** | JaCoCo, Maven, Gradle | `target/site/jacoco/jacoco.xml`<br>`build/reports/jacoco/test/jacocoTestReport.xml`<br>`build/reports/jacoco/test/jacoco.csv` |
-| **PHP** | PHPUnit, Pest | `coverage/coverage.lcov`<br>`coverage/lcov.info`<br>`build/logs/clover.xml`<br>`coverage.xml` |
-| **LLVM / Clang / Rust / Swift** | `llvm-cov`, `cargo-llvm-cov`, `swift test` | `coverage/lcov.info`<br>`coverage.lcov`<br>`*.profdata`<br>`*.profraw` |
+| Language / Tool | Frameworks | Parser | Auto-Discovered Paths |
+|:---|:---|:---|:---|
+| **TypeScript / JS / Vue** | Jest, Vitest, c8, Istanbul | LCOV | `coverage/lcov.info`<br>`coverage.lcov`<br>`coverage/lcovonly`<br>`lcov.info` |
+| **Go** | `go test -coverprofile` | Go cover | `coverage.out`<br>`c.out`<br>`cover.out` |
+| **Java** | JaCoCo (Maven, Gradle) | XML (JaCoCo) | `target/site/jacoco/jacoco.xml`<br>`build/reports/jacoco/test/jacocoTestReport.xml`<br>`build/reports/jacoco/test/jacoco.xml` |
+| **Python** | coverage.py, pytest-cov | XML (Cobertura) / LCOV | `coverage.xml`<br>`coverage/cobertura.xml`<br>(or `coverage lcov` → `coverage/lcov.info`) |
+| **PHP** | PHPUnit, Pest | XML (Clover) / LCOV | `build/logs/clover.xml`<br>`clover.xml`<br>`coverage/coverage.lcov` |
+| **LLVM / Clang / Rust / Swift** | `llvm-cov`, `cargo-llvm-cov`, `swift test` | LCOV | `coverage/lcov.info`<br>`coverage.lcov`<br>(or generate via `--llvm-binary`; see §2) |
+
+Any of these can also be passed explicitly with `--lcov <path>` — the flag dispatches by extension, so `--lcov target/site/jacoco/jacoco.xml`, `--lcov coverage.out`, and `--lcov coverage/lcov.info` all work.
+
+> **XML schema auto-detection:** JaCoCo (`<report>` root or a `<package>` child), Cobertura (`<coverage>` root with `<packages>`), and Clover (`<coverage>` root with `<project>`) are distinguished automatically. Line hits are read from JaCoCo `ci` (covered instructions), Cobertura `hits`, and Clover `count`.
 
 ---
 
@@ -73,15 +80,19 @@ Or invoke directly in the main analyzer:
 
 LCOV data contains file records (`SF:`), line coverage counts (`DA:lineNumber,hitCount`), and optional function records (`FN:`, `FNDA:`).
 
-For a function spanning lines $[\text{startLine}, \text{endLine}]$ in file $F$:
+For a function spanning lines `[startLine, endLine]` in file `F`:
 
-1. Find all `DA` records in file $F$ where $\text{startLine} \le \text{line} \le \text{endLine}$.
+1. Find all `DA` records in file `F` where `startLine ≤ line ≤ endLine`.
 2. If executable lines are found in this range:
-   $$\text{cov}(m) = \frac{|\{\text{line} \in [\text{startLine}, \text{endLine}] \mid \text{hitCount} > 0\}|}{|\{\text{line} \in [\text{startLine}, \text{endLine}]\}|}$$
+
+   ```
+   cov(m) = (count of lines in [startLine, endLine] with hitCount > 0)
+            ÷ (count of lines in [startLine, endLine])
+   ```
 3. If no line records match, check `FNDA` (function execution count):
-   - Hit count $> 0 \implies 1.0$ (or fallback based on file average)
-   - Hit count $= 0 \implies 0.0$
-4. If no coverage data exists for file $F$, coverage defaults to $0.0$ (worst-case assumption: unverified code).
+   - Hit count `> 0` ⟹ `1.0` (or fallback based on file average)
+   - Hit count `= 0` ⟹ `0.0`
+4. If no coverage data exists for file `F`, coverage defaults to `0.0` (worst-case assumption: unverified code).
 
 ---
 
