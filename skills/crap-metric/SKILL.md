@@ -59,7 +59,10 @@ Inspect the user request to determine the scope:
 3. **Entire project:** Run from repository root (`--path .`).
 
 ### Step 2: Check for Existing Coverage or Generate with `llvm-cov`
-- **Existing Reports:** `coverage/lcov.info`, `coverage.out`, `jacoco.xml`, `clover.xml`. Pass `--lcov <path>`.
+- **Existing Reports:** the analyzer auto-discovers common coverage artifacts, and `--lcov <path>` accepts any of them (dispatched by extension):
+  - **LCOV** — `coverage/lcov.info`, `coverage.lcov` (TS/JS/Vue via Jest/Vitest, PHP/Python when exported to LCOV, LLVM languages).
+  - **XML** — JaCoCo (`target/site/jacoco/jacoco.xml`, `build/reports/jacoco/test/jacocoTestReport.xml`), Cobertura (`coverage.xml`, Python), and Clover (`build/logs/clover.xml`, PHP). Schema is auto-detected.
+  - **Go cover** — `coverage.out`, `c.out`, `cover.out`.
 - **Generating via `llvm-cov`:** If working with an instrumented binary, run:
   ```bash
   .kiro/skills/crap-metric/scripts/generate_llvm_lcov.sh --binary ./path/to/binary --output coverage/lcov.info
