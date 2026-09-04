@@ -15,6 +15,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -623,16 +624,17 @@ class CoverageDatabase:
         return current_file
 
     def _lcov_record_line(self, current_file: str, da_value: str) -> None:
-        """Handles a DA: record (line_no,hits)."""
+        """Handles a DA: record (line_no,hits), max-merging with any existing entry."""
         parts = da_value.split(",")
         if len(parts) >= 2:
-            self.file_line_hits[current_file][int(parts[0])] = int(parts[1])
+            self._record_line_hit(current_file, int(parts[0]), int(parts[1]))
 
     def _lcov_record_func(self, current_file: str, fnda_value: str) -> None:
-        """Handles an FNDA: record (hits,func_name)."""
+        """Handles an FNDA: record (hits,func_name), max-merging with any existing entry."""
         parts = fnda_value.split(",")
         if len(parts) >= 2:
-            self.file_func_hits[current_file][parts[1]] = int(parts[0])
+            func_map = self.file_func_hits.setdefault(current_file, {})
+            func_map[parts[1]] = max(func_map.get(parts[1], 0), int(parts[0]))
 
     def _process_lcov_line(self, line: str, current_file: str | None) -> str | None:
         """Dispatches one LCOV line to the right handler; returns the updated current_file."""
@@ -692,6 +694,103 @@ class CoverageDatabase:
         except (OSError, ValueError, IndexError) as e:
             print(f"Warning: Failed to parse Go coverage {cover_path}: {e}", file=sys.stderr)
 
+    def _record_line_hit(self, file_norm: str, line_no: int, hits: int) -> None:
+        """Records a single line's hit count, max-merging with any existing entry."""
+        line_hits = self.file_line_hits.setdefault(file_norm, {})
+        line_hits[line_no] = max(line_hits.get(line_no, 0), hits)
+
+    def _load_jacoco(self, root: "ET.Element") -> None:
+        """Parses a JaCoCo report: package/sourcefile/line with nr + ci (covered instructions)."""
+        for package in root.iter("package"):
+            pkg_name = package.get("name", "")
+            for sourcefile in package.iter("sourcefile"):
+                fname = sourcefile.get("name", "")
+                file_path = f"{pkg_name}/{fname}" if pkg_name else fname
+                self._load_jacoco_sourcefile(sourcefile, os.path.normpath(file_path))
+
+    def _load_jacoco_sourcefile(self, sourcefile: "ET.Element", file_norm: str) -> None:
+        """Records the line hits for a single JaCoCo <sourcefile> element."""
+        for line in sourcefile.iter("line"):
+            nr = line.get("nr")
+            if nr is None:
+                continue
+            covered = int(line.get("ci", "0")) > 0
+            self._record_line_hit(file_norm, int(nr), 1 if covered else 0)
+
+    def _load_cobertura(self, root: "ET.Element") -> None:
+        """Parses a Cobertura report: class[filename]/lines/line with number + hits."""
+        for cls in root.iter("class"):
+            filename = cls.get("filename")
+            if not filename:
+                continue
+            file_norm = os.path.normpath(filename)
+            for line in cls.iter("line"):
+                number = line.get("number")
+                if number is None:
+                    continue
+                self._record_line_hit(file_norm, int(number), int(line.get("hits", "0")))
+
+    def _load_clover(self, root: "ET.Element") -> None:
+        """Parses a Clover report: file[name/path]/line with num + count (statement lines only)."""
+        for file_el in root.iter("file"):
+            filename = file_el.get("path") or file_el.get("name")
+            if not filename:
+                continue
+            file_norm = os.path.normpath(filename)
+            for line in file_el.iter("line"):
+                num = line.get("num")
+                if num is None:
+                    continue
+                self._record_line_hit(file_norm, int(num), int(line.get("count", "0")))
+
+    def _detect_xml_schema(self, root: "ET.Element") -> str | None:
+        """Identifies the coverage XML schema from the root element, or None if unrecognized."""
+        tag = root.tag.lower()
+        if tag == "report" or root.find("package") is not None:
+            return "jacoco"
+        if tag != "coverage":
+            return None
+        if root.find("packages") is not None:
+            return "cobertura"
+        if root.find("project") is not None:
+            return "clover"
+        return None
+
+    def _dispatch_xml(self, root: "ET.Element") -> bool:
+        """Routes a parsed XML root to the matching schema loader. Returns True if recognized."""
+        loaders = {
+            "jacoco": self._load_jacoco,
+            "cobertura": self._load_cobertura,
+            "clover": self._load_clover,
+        }
+        schema = self._detect_xml_schema(root)
+        if schema is None:
+            return False
+        loaders[schema](root)
+        return True
+
+    def load_xml(self, xml_path: str) -> None:
+        """Parses a JaCoCo, Cobertura, or Clover XML coverage report into line hits."""
+        if not os.path.exists(xml_path):
+            return
+        try:
+            # Coverage reports are trusted local build artifacts, not untrusted input.
+            root = ET.parse(xml_path).getroot()
+            if not self._dispatch_xml(root):
+                print(f"Warning: Unrecognized XML coverage schema in {xml_path}", file=sys.stderr)
+        except (OSError, ET.ParseError, ValueError) as e:
+            print(f"Warning: Failed to parse XML coverage {xml_path}: {e}", file=sys.stderr)
+
+    def load_auto(self, path: str) -> None:
+        """Loads a coverage file, dispatching by extension (.xml -> XML, .out -> Go, else LCOV)."""
+        lowered = path.lower()
+        if lowered.endswith(".xml"):
+            self.load_xml(path)
+        elif lowered.endswith((".out",)):
+            self.load_go_cover(path)
+        else:
+            self.load_lcov(path)
+
     def get_function_coverage(
         self, file_path: str, start_line: int, end_line: int, name: str
     ) -> tuple[float | None, list[int]]:
@@ -729,33 +828,46 @@ class CoverageDatabase:
         return None, []
 
 
+def _all_existing(workspace_dir: str, rel_paths: list[str]) -> list[str]:
+    """Returns every path in rel_paths that exists under workspace_dir, in listed order."""
+    found: list[str] = []
+    for rel in rel_paths:
+        full = os.path.join(workspace_dir, rel)
+        if os.path.exists(full):
+            found.append(full)
+    return found
+
+
 def auto_discover_coverage(workspace_dir: str) -> CoverageDatabase:
-    """Searches workspace for known coverage reports."""
+    """Searches workspace for known coverage reports (LCOV, XML, or Go cover profiles).
+
+    All matching reports in each bucket are loaded and merged, so polyglot repos
+    with multiple coverage files are fully covered. Records max-merge by file+line,
+    so loading several reports never lowers an already-observed hit count.
+    """
     cov_db = CoverageDatabase()
-    common_lcov_paths = [
+    for lcov in _all_existing(workspace_dir, [
         "coverage/lcov.info",
         "coverage.lcov",
         "coverage/lcovonly",
+        "coverage/coverage.lcov",
         "lcov.info",
+    ]):
+        cov_db.load_lcov(lcov)
+
+    for xml in _all_existing(workspace_dir, [
+        "target/site/jacoco/jacoco.xml",
+        "build/reports/jacoco/test/jacocoTestReport.xml",
         "build/reports/jacoco/test/jacoco.xml",
-    ]
-    common_go_paths = [
-        "coverage.out",
-        "c.out",
-        "cover.out",
-    ]
+        "coverage.xml",
+        "coverage/cobertura.xml",
+        "build/logs/clover.xml",
+        "clover.xml",
+    ]):
+        cov_db.load_xml(xml)
 
-    for rel in common_lcov_paths:
-        full = os.path.join(workspace_dir, rel)
-        if os.path.exists(full):
-            cov_db.load_lcov(full)
-            break
-
-    for rel in common_go_paths:
-        full = os.path.join(workspace_dir, rel)
-        if os.path.exists(full):
-            cov_db.load_go_cover(full)
-            break
+    for go in _all_existing(workspace_dir, ["coverage.out", "c.out", "cover.out"]):
+        cov_db.load_go_cover(go)
 
     return cov_db
 
@@ -1076,7 +1188,7 @@ def build_coverage_database(args: CliArgs, workspace_dir: str) -> tuple["Coverag
     """Resolves coverage source. Returns (cov_db, temp_lcov_to_clean)."""
     if args.lcov:
         cov_db = CoverageDatabase()
-        cov_db.load_lcov(args.lcov)
+        cov_db.load_auto(args.lcov)
         return cov_db, None
 
     if args.llvm_binary:
