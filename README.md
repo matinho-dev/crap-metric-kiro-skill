@@ -100,7 +100,7 @@ extension):
 - **XML**, auto-detected by schema — **JaCoCo** (`target/site/jacoco/jacoco.xml`, `build/reports/jacoco/test/jacocoTestReport.xml`) for Java, **Cobertura** (`coverage.xml`) for Python, and **Clover** (`build/logs/clover.xml`) for PHP.
 - **Go cover** profiles (`coverage.out`).
 
-See [`coverage-mapping.md`](.kiro/skills/crap-metric/references/coverage-mapping.md) for the
+See [`coverage-mapping.md`](skills/crap-metric/references/coverage-mapping.md) for the
 full discovery table and per-schema parsing details.
 
 ### Generating LCOV from native binaries
