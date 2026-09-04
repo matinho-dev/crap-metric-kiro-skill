@@ -1,21 +1,21 @@
 ---
 name: crap-metric
 description: Analyzes codebase at runtime to calculate Cyclomatic Complexity, line coverage, and CRAP (Change Risk Anti-Patterns) scores across Java, Go, PHP, TypeScript/JavaScript, Vue, Python, and C/C++ files. Flags high-risk functions (> 30) and prescribes concrete refactoring and unit testing action plans. Supports LCOV generation via llvm-cov.
-triggers:
-  - crap
-  - crap metric
-  - crap score
-  - complexity
-  - cyclomatic complexity
-  - change risk
-  - test coverage
-  - refactor risk
-  - high risk functions
-  - llvm-cov
-  - lcov
-  - recommend actions
-  - how to reduce crap
-allowed-tools: bash read_file
+metadata:
+  triggers:
+    - crap
+    - crap metric
+    - crap score
+    - complexity
+    - cyclomatic complexity
+    - change risk
+    - test coverage
+    - refactor risk
+    - high risk functions
+    - llvm-cov
+    - lcov
+    - recommend actions
+    - how to reduce crap
 ---
 
 # CRAP Metric Skill & Action Recommendation Engine
