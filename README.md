@@ -93,8 +93,15 @@ The entry point is `scripts/analyze.sh` (a thin wrapper over `analyze.py`; requi
 Coverage is optional — without it, analysis proceeds with a worst-case 0%
 assumption, surfacing functions that lack automated protection.
 
-Supported inputs (auto-discovered or via `--lcov`): **LCOV** (`lcov.info`),
-**Go cover** profiles (`coverage.out`), and other standard reports.
+Supported inputs (auto-discovered, or passed via `--lcov <path>` which dispatches by
+extension):
+
+- **LCOV** (`lcov.info`, `coverage.lcov`) — TS/JS/Vue (Jest, Vitest, c8), plus PHP/Python and LLVM languages when exported to LCOV.
+- **XML**, auto-detected by schema — **JaCoCo** (`target/site/jacoco/jacoco.xml`, `build/reports/jacoco/test/jacocoTestReport.xml`) for Java, **Cobertura** (`coverage.xml`) for Python, and **Clover** (`build/logs/clover.xml`) for PHP.
+- **Go cover** profiles (`coverage.out`).
+
+See [`coverage-mapping.md`](.kiro/skills/crap-metric/references/coverage-mapping.md) for the
+full discovery table and per-schema parsing details.
 
 ### Generating LCOV from native binaries
 
