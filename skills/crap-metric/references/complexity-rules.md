@@ -2,7 +2,9 @@
 
 Cyclomatic Complexity (CC) measures the number of linearly independent paths through a function's source code.
 
-$$\text{CC} = 1 + \sum \text{Decision Points}$$
+```
+CC = 1 + (number of decision points)
+```
 
 Every function starts with a base complexity of **1**. Each branching or conditional decision point increases complexity by **+1**.
 
