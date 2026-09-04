@@ -192,6 +192,166 @@ class TestHelpers(unittest.TestCase):
                 self.assertEqual(f.read(), "# newer")
 
 
+_JACOCO_XML = """<?xml version="1.0"?>
+<report name="demo">
+  <package name="com/example">
+    <sourcefile name="Foo.java">
+      <line nr="10" ci="4" mi="0"/>
+      <line nr="11" ci="0" mi="2"/>
+      <line nr="12" ci="3" mi="0"/>
+    </sourcefile>
+  </package>
+</report>
+"""
+
+_COBERTURA_XML = """<?xml version="1.0"?>
+<coverage line-rate="0.5">
+  <packages>
+    <package name="pkg">
+      <classes>
+        <class filename="pkg/mod.py">
+          <lines>
+            <line number="10" hits="3"/>
+            <line number="11" hits="0"/>
+            <line number="12" hits="1"/>
+          </lines>
+        </class>
+      </classes>
+    </package>
+  </packages>
+</coverage>
+"""
+
+_CLOVER_XML = """<?xml version="1.0"?>
+<coverage generated="1">
+  <project name="p">
+    <file name="src/App.php" path="/abs/src/App.php">
+      <line num="10" count="2" type="stmt"/>
+      <line num="11" count="0" type="stmt"/>
+      <line num="12" count="5" type="stmt"/>
+    </file>
+  </project>
+</coverage>
+"""
+
+
+class TestXmlCoverage(unittest.TestCase):
+    """Covers JaCoCo/Cobertura/Clover XML parsing, extension dispatch, and auto-discovery."""
+
+    def _write(self, directory: str, name: str, body: str) -> str:
+        path = os.path.join(directory, name)
+        with open(path, "w") as f:
+            _ = f.write(body)
+        return path
+
+    def test_jacoco_line_hits(self):
+        cov_db = analyze.CoverageDatabase()
+        with tempfile.TemporaryDirectory() as d:
+            cov_db.load_xml(self._write(d, "jacoco.xml", _JACOCO_XML))
+        frac, uncovered = cov_db.get_function_coverage("com/example/Foo.java", 10, 12, "any")
+        self.assertAlmostEqual(cast("float", frac), 2 / 3)
+        self.assertEqual(uncovered, [11])
+
+    def test_cobertura_line_hits(self):
+        cov_db = analyze.CoverageDatabase()
+        with tempfile.TemporaryDirectory() as d:
+            cov_db.load_xml(self._write(d, "coverage.xml", _COBERTURA_XML))
+        frac, uncovered = cov_db.get_function_coverage("pkg/mod.py", 10, 12, "any")
+        self.assertAlmostEqual(cast("float", frac), 2 / 3)
+        self.assertEqual(uncovered, [11])
+
+    def test_clover_line_hits(self):
+        cov_db = analyze.CoverageDatabase()
+        with tempfile.TemporaryDirectory() as d:
+            cov_db.load_xml(self._write(d, "clover.xml", _CLOVER_XML))
+        frac, uncovered = cov_db.get_function_coverage("/abs/src/App.php", 10, 12, "any")
+        self.assertAlmostEqual(cast("float", frac), 2 / 3)
+        self.assertEqual(uncovered, [11])
+
+    def test_unrecognized_schema_is_ignored(self):
+        cov_db = analyze.CoverageDatabase()
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write(d, "weird.xml", "<something><else/></something>")
+            cov_db.load_xml(path)
+        self.assertEqual(cov_db.file_line_hits, {})
+
+    def test_missing_file_is_noop(self):
+        cov_db = analyze.CoverageDatabase()
+        cov_db.load_xml("/nonexistent/coverage.xml")
+        self.assertEqual(cov_db.file_line_hits, {})
+
+    def test_load_auto_dispatches_by_extension(self):
+        with tempfile.TemporaryDirectory() as d:
+            xml_db = analyze.CoverageDatabase()
+            xml_db.load_auto(self._write(d, "jacoco.xml", _JACOCO_XML))
+            self.assertTrue(xml_db.file_line_hits)
+
+            lcov_db = analyze.CoverageDatabase()
+            lcov_db.load_auto(self._write(d, "c.lcov", "SF:foo.py\nDA:1,1\nend_of_record\n"))
+            self.assertIn(os.path.normpath("foo.py"), lcov_db.file_line_hits)
+
+            go_db = analyze.CoverageDatabase()
+            go_db.load_auto(self._write(d, "coverage.out", "mode: set\nfoo.go:1.1,2.2 1 1\n"))
+            self.assertTrue(go_db.file_line_hits)
+
+    def test_lcov_flag_accepts_xml(self):
+        with tempfile.TemporaryDirectory() as d:
+            xml_path = self._write(d, "jacoco.xml", _JACOCO_XML)
+            args = analyze.parse_cli_args(["--path", d, "--lcov", xml_path])
+            cov_db, temp = analyze.build_coverage_database(args, d)
+            self.assertIsNone(temp)
+            frac, _ = cov_db.get_function_coverage("com/example/Foo.java", 10, 12, "any")
+            self.assertAlmostEqual(cast("float", frac), 2 / 3)
+
+    def test_auto_discovery_finds_cobertura(self):
+        with tempfile.TemporaryDirectory() as d:
+            _ = self._write(d, "coverage.xml", _COBERTURA_XML)
+            cov_db = analyze.auto_discover_coverage(d)
+            frac, _ = cov_db.get_function_coverage("pkg/mod.py", 10, 12, "any")
+            self.assertAlmostEqual(cast("float", frac), 2 / 3)
+
+    def test_auto_discovery_merges_multiple_buckets(self):
+        # A polyglot repo with a JaCoCo XML report AND a Go cover profile:
+        # both must be discovered and merged into one database.
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "target", "site", "jacoco"))
+            _ = self._write(
+                d, os.path.join("target", "site", "jacoco", "jacoco.xml"), _JACOCO_XML
+            )
+            _ = self._write(d, "coverage.out", "mode: set\nsvc/main.go:5.1,7.2 1 1\n")
+            cov_db = analyze.auto_discover_coverage(d)
+
+            java_frac, _ = cov_db.get_function_coverage("com/example/Foo.java", 10, 12, "any")
+            self.assertAlmostEqual(cast("float", java_frac), 2 / 3)
+            go_frac, _ = cov_db.get_function_coverage("svc/main.go", 5, 7, "any")
+            self.assertAlmostEqual(cast("float", go_frac), 1.0)
+
+    def test_all_existing_collects_every_match(self):
+        with tempfile.TemporaryDirectory() as d:
+            _ = self._write(d, "coverage.xml", _COBERTURA_XML)
+            _ = self._write(d, "clover.xml", _CLOVER_XML)
+            cov_db = analyze.auto_discover_coverage(d)
+            # Cobertura file and Clover file both loaded from the XML bucket.
+            cob, _ = cov_db.get_function_coverage("pkg/mod.py", 10, 12, "any")
+            clv, _ = cov_db.get_function_coverage("/abs/src/App.php", 10, 12, "any")
+            self.assertAlmostEqual(cast("float", cob), 2 / 3)
+            self.assertAlmostEqual(cast("float", clv), 2 / 3)
+
+    def test_lcov_records_max_merge(self):
+        # Loading two LCOV reports touching the same file+line keeps the MAX hit
+        # count, so a covered hit is never clobbered by a later zero.
+        cov_db = analyze.CoverageDatabase()
+        with tempfile.TemporaryDirectory() as d:
+            first = self._write(d, "a.lcov", "SF:x.py\nDA:1,0\nDA:2,5\nend_of_record\n")
+            second = self._write(d, "b.lcov", "SF:x.py\nDA:1,3\nDA:2,0\nend_of_record\n")
+            cov_db.load_lcov(first)
+            cov_db.load_lcov(second)
+        frac, uncovered = cov_db.get_function_coverage("x.py", 1, 2, "any")
+        # Line 1 hit in second (3), line 2 hit in first (5) -> both covered.
+        self.assertAlmostEqual(cast("float", frac), 1.0)
+        self.assertEqual(uncovered, [])
+
+
 class TestFindMatchingBrace(unittest.TestCase):
     """Covers analyze._find_matching_brace brace-matching, comment/string skipping, and edge cases."""
 
